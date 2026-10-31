@@ -16,10 +16,8 @@ def search_tavily(query):
     try:
         with urllib.request.urlopen(req) as response:
             res = json.loads(response.read().decode())
-            # Extract both results and images
             results = res.get("results", [])
             images = res.get("images", [])
-            # Attach images to results if available
             for i, r in enumerate(results):
                 if i < len(images):
                     r['image_url'] = images[i]
