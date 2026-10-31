@@ -5,18 +5,27 @@ import os
 
 app = Flask(__name__)
 
-# Fetch API keys securely from environment variables (configured on Render)
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 def search_tavily(query):
     url = "https://api.tavily.com/search"
-    payload = {"api_key": TAVILY_API_KEY.strip(), "query": query, "max_results": 3}
+    payload = {"api_key": TAVILY_API_KEY.strip(), "query": query, "max_results": 3, "include_images": True}
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
     try:
         with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode()).get("results", [])
+            res = json.loads(response.read().decode())
+            # Extract both results and images
+            results = res.get("results", [])
+            images = res.get("images", [])
+            # Attach images to results if available
+            for i, r in enumerate(results):
+                if i < len(images):
+                    r['image_url'] = images[i]
+                else:
+                    r['image_url'] = ""
+            return results
     except Exception as e:
         print(f"Tavily Error: {e}")
         return []
@@ -45,7 +54,6 @@ def ask_groq(prompt):
         print(f"Groq Debug Error: {e}")
         return f"AI request failed: {e}"
 
-# HTML Template with sidebar navigation and tabs
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -255,26 +263,45 @@ HTML_TEMPLATE = """
             line-height: 1.5;
             font-size: 12.5px;
             color: #2F3E2E;
+            margin-bottom: 14px;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-top: 12px;
         }
 
         .card-item {
             background: #FFFFFF;
-            padding: 14px;
+            padding: 12px;
             border-radius: 12px;
-            margin-bottom: 10px;
             border-left: 4px solid var(--green-primary);
             box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .card-item img {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 8px;
+            background: #eee;
+            flex-shrink: 0;
         }
 
         .card-item h4 {
             margin: 0 0 4px 0;
             color: var(--green-dark);
-            font-size: 13.5px;
+            font-size: 13px;
         }
 
         .card-item p {
             margin: 0;
-            font-size: 11.5px;
+            font-size: 11px;
             color: var(--text-muted);
         }
     </style>
@@ -317,7 +344,7 @@ HTML_TEMPLATE = """
         <div class="ai-notification">
             <span>💡</span>
             <div>
-                <strong>Shopper AI Alert:</strong> Prices for 20,000mAh power banks dropped by ~5% on local stores today. Best time to buy!
+                <strong>Shopper AI Alert:</strong> Prices for top requested items dropped by ~5% today. Best time to buy!
             </div>
         </div>
 
@@ -336,6 +363,22 @@ HTML_TEMPLATE = """
                 <div class="result-card">
                     <h3>🤖 AI Product Evaluation</h3>
                     <div class="ai-output">{{ result }}</div>
+                    
+                    {% if results %}
+                        <div class="product-grid">
+                            {% for r in results %}
+                                {% if r.get('image_url') %}
+                                <div class="card-item">
+                                    <img src="{{ r.get('image_url') }}" alt="Product Image">
+                                    <div>
+                                        <h4>{{ r.get('title') }}</h4>
+                                        <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store Link →</a></p>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                 </div>
             {% endif %}
         </div>
@@ -343,36 +386,40 @@ HTML_TEMPLATE = """
         <div id="recommendTab" class="tab-pane">
             <h3 style="color: var(--green-dark); font-size: 15px; margin-top:0;">Curated For You</h3>
             <div class="card-item">
-                <h4>Poolee Energize20 (20000mAh)</h4>
-                <p><strong>₦18,000</strong> • 22.5W Fast Charging, Aluminium body.</p>
-            </div>
-            <div class="card-item">
-                <h4>Oraimo PB-20000-A</h4>
-                <p><strong>₦18,500</strong> • Trusted durability with built-in safety chips.</p>
+                <div>
+                    <h4>Poolee Energize20 (20000mAh)</h4>
+                    <p><strong>₦18,000</strong> • 22.5W Fast Charging, Aluminium body.</p>
+                </div>
             </div>
         </div>
 
         <div id="promosTab" class="tab-pane">
             <h3 style="color: var(--green-dark); font-size: 15px; margin-top:0;">🔥 Live Web Promos</h3>
             <div class="card-item" style="border-left-color: #D97706;">
-                <h4>Jumia Tech Week Flash Sale</h4>
-                <p>Up to 25% off selected mobile accessories this week.</p>
+                <div>
+                    <h4>Jumia Tech Week Flash Sale</h4>
+                    <p>Up to 25% off selected mobile accessories this week.</p>
+                </div>
             </div>
         </div>
 
         <div id="newsTab" class="tab-pane">
             <h3 style="color: var(--green-dark); font-size: 15px; margin-top:0;">📰 Shopping & Tech News</h3>
             <div class="card-item" style="border-left-color: #4A5568;">
-                <h4>How to Spot Fake Power Banks in 2026</h4>
-                <p>Industry experts share safety tips on checking true capacity ratings.</p>
+                <div>
+                    <h4>How to Spot Fake Power Banks</h4>
+                    <p>Industry experts share safety tips on checking true capacity ratings.</p>
+                </div>
             </div>
         </div>
 
         <div id="settingsTab" class="tab-pane">
             <h3 style="color: var(--green-dark); font-size: 15px; margin-top:0;">⚙️ App Settings</h3>
             <div class="card-item">
-                <h4>API Configuration</h4>
-                <p>Tavily & Groq AI keys active via environment variables.</p>
+                <div>
+                    <h4>API Configuration</h4>
+                    <p>Tavily & Groq AI keys active via environment variables.</p>
+                </div>
             </div>
         </div>
     </div>
@@ -397,14 +444,17 @@ HTML_TEMPLATE = """
 def home():
     result = None
     query = ""
+    search_results = []
     if request.method == "POST":
         query = request.form.get("query")
         search_results = search_tavily(query)
         context = "".join([f"Title: {r.get('title')}\nLink: {r.get('url')}\nContent: {r.get('content')}\n\n" for r in search_results])
-        prompt = f"User wants: {query}\n\nWeb results:\n{context}\n\nPick the best option, provide details, and mention its price."
+        
+        # Enforce strict < 100 words rule in the prompt
+        prompt = f"User wants: {query}\n\nWeb results:\n{context}\n\nPick the best option, provide details, and mention its price. Keep your total response strictly under 100 words."
         result = ask_groq(prompt)
     
-    return render_template_string(HTML_TEMPLATE, result=result, query=query)
+    return render_template_string(HTML_TEMPLATE, result=result, results=search_results, query=query)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
