@@ -2,15 +2,23 @@ from flask import Flask, render_template_string, request
 import urllib.request
 import json
 import os
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-def search_tavily(query):
+def search_tavily(query, time_range="w"):
     url = "https://api.tavily.com/search"
-    payload = {"api_key": TAVILY_API_KEY.strip(), "query": query, "max_results": 3, "include_images": True}
+    # time_range: 'w' for past week (recents), 'm3' for past 3 months (older)
+    payload = {
+        "api_key": TAVILY_API_KEY.strip(), 
+        "query": query, 
+        "max_results": 3, 
+        "include_images": True,
+        "time_range": time_range
+    }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
     try:
@@ -239,6 +247,37 @@ HTML_TEMPLATE = """
             display: block;
         }
 
+        .sub-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .sub-tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: #E2ECE0;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 12.5px;
+            cursor: pointer;
+            color: var(--green-dark);
+        }
+
+        .sub-tab-btn.active {
+            background: var(--green-primary);
+            color: white;
+        }
+
+        .sub-pane {
+            display: none;
+        }
+
+        .sub-pane.active {
+            display: block;
+        }
+
         .result-card {
             margin-top: 20px;
             background: var(--alert-bg);
@@ -302,6 +341,21 @@ HTML_TEMPLATE = """
             font-size: 11px;
             color: var(--text-muted);
         }
+
+        .paypal-btn {
+            display: inline-block;
+            background: #0070BA;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-decoration: none;
+            margin-top: 6px;
+        }
+        .paypal-btn:hover {
+            background: #005ea6;
+        }
     </style>
 </head>
 <body>
@@ -309,10 +363,6 @@ HTML_TEMPLATE = """
         <button class="nav-item active" onclick="switchTab(event, 'searchTab')">
             <span class="icon">🛍️</span>
             Shopper
-        </button>
-        <button class="nav-item" onclick="switchTab(event, 'searchTab')">
-            <span class="icon">🔍</span>
-            Search
         </button>
         <button class="nav-item" onclick="switchTab(event, 'recommendTab')">
             <span class="icon">✨</span>
@@ -361,22 +411,52 @@ HTML_TEMPLATE = """
                 <div class="result-card">
                     <h3>🤖 AI Product Evaluation</h3>
                     <div class="ai-output">{{ result }}</div>
-                    
-                    {% if results %}
-                        <div class="product-grid">
-                            {% for r in results %}
-                                {% if r.get('image_url') %}
-                                <div class="card-item">
-                                    <img src="{{ r.get('image_url') }}" alt="Product Image">
-                                    <div>
-                                        <h4>{{ r.get('title') }}</h4>
-                                        <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store Link →</a></p>
+
+                    <!-- Sub-tabs for Recents vs Older -->
+                    <div class="sub-tabs">
+                        <button class="sub-tab-btn active" onclick="switchSubTab(event, 'recentsPane')">⏳ Recents (Past Week)</button>
+                        <button class="sub-tab-btn" onclick="switchSubTab(event, 'olderPane')">📦 Older (Past 3 Months)</button>
+                    </div>
+
+                    <div id="recentsPane" class="sub-pane active">
+                        <p style="font-size: 11.5px; color: var(--text-muted); margin-top:0;">Deals & listings from the past 7 days:</p>
+                        {% if recent_results %}
+                            <div class="product-grid">
+                                {% for r in recent_results %}
+                                    <div class="card-item">
+                                        {% if r.get('image_url') %}<img src="{{ r.get('image_url') }}" alt="Product">{% endif %}
+                                        <div>
+                                            <h4>{{ r.get('title') }}</h4>
+                                            <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store →</a></p>
+                                            <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=your-paypal-email@example.com&item_name={{ r.get('title') }}&amount=10.00&currency_code=USD" target="_blank" class="paypal-btn">Checkout with PayPal</a>
+                                        </div>
                                     </div>
-                                </div>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p style="font-size: 12px;">No recent listings found for this week.</p>
+                        {% endif %}
+                    </div>
+
+                    <div id="olderPane" class="sub-pane">
+                        <p style="font-size: 11.5px; color: var(--text-muted); margin-top:0;">Listings from the past 3 months:</p>
+                        {% if older_results %}
+                            <div class="product-grid">
+                                {% for r in older_results %}
+                                    <div class="card-item">
+                                        {% if r.get('image_url') %}<img src="{{ r.get('image_url') }}" alt="Product">{% endif %}
+                                        <div>
+                                            <h4>{{ r.get('title') }}</h4>
+                                            <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store →</a></p>
+                                            <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=your-paypal-email@example.com&item_name={{ r.get('title') }}&amount=10.00&currency_code=USD" target="_blank" class="paypal-btn">Checkout with PayPal</a>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p style="font-size: 12px;">No older listings found.</p>
+                        {% endif %}
+                    </div>
                 </div>
             {% endif %}
         </div>
@@ -386,7 +466,8 @@ HTML_TEMPLATE = """
             <div class="card-item">
                 <div>
                     <h4>Poolee Energize20 (20000mAh)</h4>
-                    <p><strong>₦18,000</strong> • 22.5W Fast Charging, Aluminium body.</p>
+                    <p><strong>₦18,000</strong> • 22.5W Fast Charging.</p>
+                    <a href="https://www.paypal.com" target="_blank" class="paypal-btn">Checkout with PayPal</a>
                 </div>
             </div>
         </div>
@@ -396,7 +477,7 @@ HTML_TEMPLATE = """
             <div class="card-item" style="border-left-color: #D97706;">
                 <div>
                     <h4>Jumia Tech Week Flash Sale</h4>
-                    <p>Up to 25% off selected mobile accessories this week.</p>
+                    <p>Up to 25% off selected mobile accessories.</p>
                 </div>
             </div>
         </div>
@@ -406,7 +487,7 @@ HTML_TEMPLATE = """
             <div class="card-item" style="border-left-color: #4A5568;">
                 <div>
                     <h4>How to Spot Fake Power Banks</h4>
-                    <p>Industry experts share safety tips on checking true capacity ratings.</p>
+                    <p>Industry experts share safety tips on checking true capacity.</p>
                 </div>
             </div>
         </div>
@@ -433,6 +514,17 @@ HTML_TEMPLATE = """
             document.getElementById(tabName).classList.add("active");
             evt.currentTarget.classList.add("active");
         }
+
+        function switchSubTab(evt, paneName) {
+            let panes = document.getElementsByClassName("sub-pane");
+            for (let p of panes) { p.classList.remove("active"); }
+
+            let btns = document.getElementsByClassName("sub-tab-btn");
+            for (let b of btns) { b.classList.remove("active"); }
+
+            document.getElementById(paneName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
     </script>
 </body>
 </html>
@@ -442,19 +534,23 @@ HTML_TEMPLATE = """
 def home():
     result = None
     query = ""
-    search_results = []
+    recent_results = []
+    older_results = []
+    
     if request.method == "POST":
         query = request.form.get("query")
-        search_results = search_tavily(query)
-        context = "".join([f"Title: {r.get('title')}\nLink: {r.get('url')}\nContent: {r.get('content')}\n\n" for r in search_results])
+        # Fetch Recents (past week -> 'w')
+        recent_results = search_tavily(query, time_range="w")
+        # Fetch Older (past 3 months -> 'm3')
+        older_results = search_tavily(query, time_range="m3")
         
-        # Enforce strict < 100 words rule in the prompt
+        context = "".join([f"Title: {r.get('title')}\nLink: {r.get('url')}\nContent: {r.get('content')}\n\n" for r in recent_results])
+        
         prompt = f"User wants: {query}\n\nWeb results:\n{context}\n\nPick the best option, provide details, and mention its price. Keep your total response strictly under 100 words."
         result = ask_groq(prompt)
     
-    return render_template_string(HTML_TEMPLATE, result=result, results=search_results, query=query)
+    return render_template_string(HTML_TEMPLATE, result=result, recent_results=recent_results, older_results=older_results, query=query)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-    
