@@ -24,7 +24,7 @@ def search_tavily(query):
 def ask_groq(prompt):
     url = "https://api.groq.com/openai/v1/chat/completions"
     payload = {
-        "model": "llama-3.1-70b-versatile",
+        "model": "openai/gpt-oss-20b",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3
     }
@@ -409,3 +409,4 @@ def home():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+    
