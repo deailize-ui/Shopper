@@ -2,16 +2,26 @@ from flask import Flask, render_template_string, request
 import urllib.request
 import json
 import os
-from datetime import datetime, timedelta
+import sqlite3
 
 app = Flask(__name__)
 
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
+# Initialize SQLite Database for Wallet & Orders
+def init_db():
+    conn = sqlite3.connect('shopper.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS wallets (user_id TEXT PRIMARY KEY, balance REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, product_name TEXT, status TEXT, details TEXT)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 def search_tavily(query, time_range="w"):
     url = "https://api.tavily.com/search"
-    # time_range: 'w' for past week (recents), 'm3' for past 3 months (older)
     payload = {
         "api_key": TAVILY_API_KEY.strip(), 
         "query": query, 
@@ -199,7 +209,7 @@ HTML_TEMPLATE = """
             color: var(--text-main);
         }
 
-        input[type="text"] {
+        input[type="text"], input[type="number"] {
             width: 100%;
             padding: 14px 16px;
             border: 1.5px solid #C5D4BF;
@@ -212,7 +222,7 @@ HTML_TEMPLATE = """
             box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus, input[type="number"]:focus {
             border-color: var(--green-primary);
         }
 
@@ -364,6 +374,10 @@ HTML_TEMPLATE = """
             <span class="icon">🛍️</span>
             Shopper
         </button>
+        <button class="nav-item" onclick="switchTab(event, 'walletTab')">
+            <span class="icon">💳</span>
+            Wallet
+        </button>
         <button class="nav-item" onclick="switchTab(event, 'recommendTab')">
             <span class="icon">✨</span>
             Recomms
@@ -412,14 +426,13 @@ HTML_TEMPLATE = """
                     <h3>🤖 AI Product Evaluation</h3>
                     <div class="ai-output">{{ result }}</div>
 
-                    <!-- Sub-tabs for Recents vs Older -->
                     <div class="sub-tabs">
                         <button class="sub-tab-btn active" onclick="switchSubTab(event, 'recentsPane')">⏳ Recents (Past Week)</button>
                         <button class="sub-tab-btn" onclick="switchSubTab(event, 'olderPane')">📦 Older (Past 3 Months)</button>
                     </div>
 
                     <div id="recentsPane" class="sub-pane active">
-                        <p style="font-size: 11.5px; color: var(--text-muted); margin-top:0;">Deals & listings from the past 7 days:</p>
+                        <p style="font-size: 11.5px; color: var(--text-muted); margin-top:0;">Deals from the past 7 days:</p>
                         {% if recent_results %}
                             <div class="product-grid">
                                 {% for r in recent_results %}
@@ -428,13 +441,16 @@ HTML_TEMPLATE = """
                                         <div>
                                             <h4>{{ r.get('title') }}</h4>
                                             <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store →</a></p>
-                                            <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=your-paypal-email@example.com&item_name={{ r.get('title') }}&amount=10.00&currency_code=USD" target="_blank" class="paypal-btn">Checkout with PayPal</a>
+                                            <form action="/checkout" method="POST" style="margin-top:4px;">
+                                                <input type="hidden" name="product_name" value="{{ r.get('title') }}">
+                                                <button type="submit" class="paypal-btn" style="border:none; cursor:pointer;">Checkout with PayPal</button>
+                                            </form>
                                         </div>
                                     </div>
                                 {% endfor %}
                             </div>
                         {% else %}
-                            <p style="font-size: 12px;">No recent listings found for this week.</p>
+                            <p style="font-size: 12px;">No recent listings found.</p>
                         {% endif %}
                     </div>
 
@@ -448,7 +464,10 @@ HTML_TEMPLATE = """
                                         <div>
                                             <h4>{{ r.get('title') }}</h4>
                                             <p><a href="{{ r.get('url') }}" target="_blank" style="color: var(--green-primary); text-decoration: none;">View Store →</a></p>
-                                            <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=your-paypal-email@example.com&item_name={{ r.get('title') }}&amount=10.00&currency_code=USD" target="_blank" class="paypal-btn">Checkout with PayPal</a>
+                                            <form action="/checkout" method="POST" style="margin-top:4px;">
+                                                <input type="hidden" name="product_name" value="{{ r.get('title') }}">
+                                                <button type="submit" class="paypal-btn" style="border:none; cursor:pointer;">Checkout with PayPal</button>
+                                            </form>
                                         </div>
                                     </div>
                                 {% endfor %}
@@ -459,6 +478,27 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             {% endif %}
+
+            {% if checkout_msg %}
+                <div class="result-card" style="border-left-color: #0070BA; background: #E6F0FA;">
+                    <h3 style="color: #0070BA;">🛍️ Autonomous Purchase Status</h3>
+                    <div class="ai-output">{{ checkout_msg }}</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div id="walletTab" class="tab-pane">
+            <h3 style="color: var(--green-dark); font-size: 15px; margin-top:0;">💳 Account Wallet</h3>
+            <div class="card-item" style="flex-direction: column; align-items: flex-start;">
+                <h4>Current Balance</h4>
+                <p style="font-size: 18px; font-weight: bold; color: var(--green-primary); margin: 6px 0;">₦{{ "%.2f"|format(balance) }}</p>
+                <form action="/fund" method="POST" style="width: 100%; margin-top: 10px;">
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <input type="number" name="amount" placeholder="Enter amount to fund" required min="1" step="any">
+                    </div>
+                    <button type="submit" class="paypal-btn" style="width: 100%; padding: 10px; font-size: 13px;">Fund Account via PayPal</button>
+                </form>
+            </div>
         </div>
 
         <div id="recommendTab" class="tab-pane">
@@ -467,7 +507,6 @@ HTML_TEMPLATE = """
                 <div>
                     <h4>Poolee Energize20 (20000mAh)</h4>
                     <p><strong>₦18,000</strong> • 22.5W Fast Charging.</p>
-                    <a href="https://www.paypal.com" target="_blank" class="paypal-btn">Checkout with PayPal</a>
                 </div>
             </div>
         </div>
@@ -536,21 +575,10 @@ def home():
     query = ""
     recent_results = []
     older_results = []
+    checkout_msg = None
     
-    if request.method == "POST":
-        query = request.form.get("query")
-        # Fetch Recents (past week -> 'w')
-        recent_results = search_tavily(query, time_range="w")
-        # Fetch Older (past 3 months -> 'm3')
-        older_results = search_tavily(query, time_range="m3")
-        
-        context = "".join([f"Title: {r.get('title')}\nLink: {r.get('url')}\nContent: {r.get('content')}\n\n" for r in recent_results])
-        
-        prompt = f"User wants: {query}\n\nWeb results:\n{context}\n\nPick the best option, provide details, and mention its price. Keep your total response strictly under 100 words."
-        result = ask_groq(prompt)
-    
-    return render_template_string(HTML_TEMPLATE, result=result, recent_results=recent_results, older_results=older_results, query=query)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    user_id = "default_user"
+    conn = sqlite3.connect('shopper.db')
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (?, 0)", (user_id,))
+    c.ex
