@@ -18,6 +18,7 @@ def search_tavily(query):
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode()).get("results", [])
     except Exception as e:
+        print(f"Tavily Error: {e}")
         return []
 
 def ask_groq(prompt):
@@ -41,7 +42,8 @@ def ask_groq(prompt):
             res_data = json.loads(response.read().decode())
             return res_data["choices"][0]["message"]["content"]
     except Exception as e:
-        return "AI request failed."
+        print(f"Groq Debug Error: {e}")
+        return f"AI request failed: {e}"
 
 # HTML Template with sidebar navigation and tabs
 HTML_TEMPLATE = """
@@ -407,4 +409,3 @@ def home():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-  
