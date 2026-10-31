@@ -9,12 +9,11 @@ app = Flask(__name__)
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# Initialize SQLite Database with safe connection context management
 def init_db():
     with sqlite3.connect('shopper.db', timeout=10.0) as conn:
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS wallets (user_id TEXT PRIMARY KEY, balance REAL)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, product_name TEXT, status TEXT, details TEXT)''')
+        c.execute('CREATE TABLE IF NOT EXISTS wallets (user_id TEXT PRIMARY KEY, balance REAL)')
+        c.execute('CREATE TABLE IF NOT EXISTS orders (order_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, product_name TEXT, status TEXT, details TEXT)')
         conn.commit()
 
 init_db()
@@ -579,4 +578,5 @@ def home():
     user_id = "default_user"
     with sqlite3.connect('shopper.db') as conn:
         c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO wallets 
+        c.execute("INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (?, 0)", (user_id,))
+        c.execute("SELECT bala
